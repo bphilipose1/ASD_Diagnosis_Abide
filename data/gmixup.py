@@ -1,3 +1,4 @@
+
 import argparse
 import pickle
 from time import time
@@ -68,13 +69,16 @@ def parse_arguments():
     parser.add_argument("--seed", type=int, default=1314)
     parser.add_argument("--log_screen", type=str, default="False")
     parser.add_argument("--ge", type=str, default="MC")
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--num_hidden", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=0.001)
     args = parser.parse_args()
     return args
 
 
 def prepare_dataset_x(dataset, args):
     if dataset[0].x is None:
-        ##############################################################
         for data in dataset[: args.aug_num]:
             G = nx.Graph()
             G.add_edges_from(data.edge_index.t().numpy())
@@ -118,31 +122,10 @@ def prepare_dataset_x(dataset, args):
             else:
                 X = torch.tensor(features.values)
             data.x = X
-        ##############################################################
-        # max_degree = 0
-        # degs = []
-        # for data in dataset:
-        #     degs += [degree(data.edge_index[0], dtype=torch.long)]
-        #     max_degree = max(max_degree, degs[-1].max().item())
-        #     data.num_nodes = int(torch.max(data.edge_index)) + 1
-
-        # if max_degree < 2000:
-        #     # dataset.transform = T.OneHotDegree(max_degree)
-
-        #     for data in dataset:
-        #         degs = degree(data.edge_index[0], dtype=torch.long)
-        #         data.x = F.one_hot(degs, num_classes=max_degree + 1).to(torch.float)
-        # else:
-        #     deg = torch.cat(degs, dim=0).to(torch.float)
-        #     mean, std = deg.mean().item(), deg.std().item()
-        #     for data in dataset:
-        #         degs = degree(data.edge_index[0], dtype=torch.long)
-        #         data.x = ((degs - mean) / std).view(-1, 1)
     return dataset
 
 
 def prepare_dataset_onehot_y(dataset):
-
     y_set = set()
     for data in dataset:
         y_set.add(int(data.y))
@@ -153,55 +136,55 @@ def prepare_dataset_onehot_y(dataset):
     return dataset
 
 
-# def mixup_cross_entropy_loss(input, target, size_average=True):
-#     """Origin: https://github.com/moskomule/mixup.pytorch
-#     in PyTorch's cross entropy, targets are expected to be labels
-#     so to predict probabilities this loss is needed
-#     suppose q is the target and p is the input
-#     loss(p, q) = -\sum_i q_i \log p_i
-#     """
-#     assert input.size() == target.size()
-#     assert isinstance(input, Variable) and isinstance(target, Variable)
-#     loss = -torch.sum(input * target)
-#     return loss / input.size()[0] if size_average else loss
+def mixup_cross_entropy_loss(input, target, size_average=True):
+    """Origin: https://github.com/moskomule/mixup.pytorch
+    in PyTorch's cross entropy, targets are expected to be labels
+    so to predict probabilities this loss is needed
+    suppose q is the target and p is the input
+    loss(p, q) = -\sum_i q_i \log p_i
+    """
+    assert input.size() == target.size()
+    assert isinstance(input, Variable) and isinstance(target, Variable)
+    loss = -torch.sum(input * target)
+    return loss / input.size()[0] if size_average else loss
 
 
-# def train(model, train_loader):
-#     model.train()
-#     loss_all = 0
-#     graph_all = 0
-#     for data in train_loader:
-#         # print( "data.y", data.y )
-#         data = data.to(device)
-#         optimizer.zero_grad()
-#         output = model(data.x, data.edge_index, data.batch)
-#         y = data.y.view(-1, num_classes)
-#         loss = mixup_cross_entropy_loss(output, y)
-#         loss.backward()
-#         loss_all += loss.item() * data.num_graphs
-#         graph_all += data.num_graphs
-#         optimizer.step()
-#     loss = loss_all / graph_all
-#     return model, loss
+def train(model, train_loader, optimizer, device, num_classes):
+    model.train()
+    loss_all = 0
+    graph_all = 0
+    for data in train_loader:
+        data = data.to(device)
+        optimizer.zero_grad()
+        output = model(data.x, data.edge_index, data.batch)
+        y = data.y.view(-1, num_classes)
+        loss = mixup_cross_entropy_loss(output, y)
+        loss.backward()
+        loss_all += loss.item() * data.num_graphs
+        graph_all += data.num_graphs
+        optimizer.step()
+    loss = loss_all / graph_all
+    return model, loss
 
 
-# def test(model, loader):
-#     model.eval()
-#     correct = 0
-#     total = 0
-#     loss = 0
-#     for data in loader:
-#         data = data.to(device)
-#         output = model(data.x, data.edge_index, data.batch)
-#         pred = output.max(dim=1)[1]
-#         y = data.y.view(-1, num_classes)
-#         loss += mixup_cross_entropy_loss(output, y).item() * data.num_graphs
-#         y = y.max(dim=1)[1]
-#         correct += pred.eq(y).sum().item()
-#         total += data.num_graphs
-#     acc = correct / total
-#     loss = loss / total
-#     return (acc,)
+def test(model, loader, device, num_classes):
+    model.eval()
+    correct = 0
+    total = 0
+    loss = 0
+    with torch.no_grad():
+        for data in loader:
+            data = data.to(device)
+            output = model(data.x, data.edge_index, data.batch)
+            pred = output.max(dim=1)[1]
+            y = data.y.view(-1, num_classes)
+            loss += mixup_cross_entropy_loss(output, y).item() * data.num_graphs
+            y = y.max(dim=1)[1]
+            correct += pred.eq(y).sum().item()
+            total += data.num_graphs
+    acc = correct / total
+    loss = loss / total
+    return acc, loss
 
 
 def main(args):
@@ -210,11 +193,10 @@ def main(args):
     lam_range = eval(args.lam_range)
     log_screen = eval(args.log_screen)
     gmixup = eval(args.gmixup)
-    # num_epochs = args.epoch
-
-    # num_hidden = args.num_hidden
-    # batch_size = args.batch_size
-    # learning_rate = args.lr
+    num_epochs = args.num_epochs
+    num_hidden = args.num_hidden
+    batch_size = args.batch_size
+    learning_rate = args.lr
     ge = args.ge
     aug_ratio = args.aug_ratio
     aug_num = args.aug_num
@@ -225,20 +207,9 @@ def main(args):
     with open(args.features_path, "rb") as fp:
         data_list = pickle.load(fp)
 
-    #### Convert int to tensor in y
     for graph in data_list:
         graph.y = torch.tensor(graph.y)
         graph.y = graph.y.view(-1)
-
-    # dataset = TUDataset(
-    #     "C:\\Users\\Afrooz Sheikholeslam\\Education\\9th semester\\Project 2\\Output\\tu",
-    #     name="REDDIT-BINARY",
-    # )
-    # dataset = list(dataset)
-
-    # for graph in dataset:
-    #     print(graph.y.view(-1), graph.y)
-    #     graph.y = graph.y.view(-1)
 
     dataset = prepare_dataset_onehot_y(data_list)
 
@@ -297,7 +268,7 @@ def main(args):
                 f"graphon info: label:{label}; mean: {graphon.mean()}, shape, {graphon.shape}"
             )
 
-        num_sample = int(train_nums * aug_ratio / aug_num)
+        num_sample = max(1, int(train_nums * aug_ratio / aug_num))  # Ensure num_sample is at least 1
         lam_list = np.random.uniform(
             low=lam_range[0], high=lam_range[1], size=(aug_num,)
         )
@@ -311,36 +282,39 @@ def main(args):
             print(f"num_sample: {num_sample}")
             two_graphons = random.sample(graphons, 2)
             new_graph += two_graphons_mixup(two_graphons, la=lam, num_sample=num_sample)
-            logger.info(f"label: {new_graph[-1].y}")
-            print(f"label: {new_graph[-1].y}")
+            if new_graph:
+                logger.info(f"label: {new_graph[-1].y}")
+                print(f"label: {new_graph[-1].y}")
         print(f"Length of new_graph: {len(new_graph)}")
-        (
-            avg_num_nodes,
-            avg_num_edges,
-            avg_density,
-            median_num_nodes,
-            median_num_edges,
-            median_density,
-        ) = stat_graph(new_graph)
-        logger.info(f"avg num nodes of new graphs: { avg_num_nodes }")
-        logger.info(f"avg num edges of new graphs: { avg_num_edges }")
-        logger.info(f"avg density of new graphs: { avg_density }")
-        logger.info(f"median num nodes of new graphs: { median_num_nodes }")
-        logger.info(f"median num edges of new graphs: { median_num_edges }")
-        logger.info(f"median density of new graphs: { median_density }")
 
-        print(f"avg num nodes of new graphs: { avg_num_nodes }")
-        print(f"avg num edges of new graphs: { avg_num_edges }")
-        print(f"avg density of new graphs: { avg_density }")
-        print(f"median num nodes of new graphs: { median_num_nodes }")
-        print(f"median num edges of new graphs: { median_num_edges }")
-        print(f"median density of new graphs: { median_density }")
+        if new_graph:
+            (
+                avg_num_nodes,
+                avg_num_edges,
+                avg_density,
+                median_num_nodes,
+                median_num_edges,
+                median_density,
+            ) = stat_graph(new_graph)
+            logger.info(f"avg num nodes of new graphs: { avg_num_nodes }")
+            logger.info(f"avg num edges of new graphs: { avg_num_edges }")
+            logger.info(f"avg density of new graphs: { avg_density }")
+            logger.info(f"median num nodes of new graphs: { median_num_nodes }")
+            logger.info(f"median num edges of new graphs: { median_num_edges }")
+            logger.info(f"median density of new graphs: { median_density }")
 
-        dataset = new_graph + dataset
-        logger.info(f"real aug ratio: {len( new_graph ) / train_nums }")
-        print(f"real aug ratio: {len( new_graph ) / train_nums }")
-        train_nums = train_nums + len(new_graph)
-        train_val_nums = train_val_nums + len(new_graph)
+            print(f"avg num nodes of new graphs: { avg_num_nodes }")
+            print(f"avg num edges of new graphs: { avg_num_edges }")
+            print(f"avg density of new graphs: { avg_density }")
+            print(f"median num nodes of new graphs: { median_num_nodes }")
+            print(f"median num edges of new graphs: { median_num_edges }")
+            print(f"median density of new graphs: { median_density }")
+
+            dataset = new_graph + dataset
+            logger.info(f"real aug ratio: {len(new_graph) / train_nums}")
+            print(f"real aug ratio: {len(new_graph) / train_nums}")
+            train_nums = train_nums + len(new_graph)
+            train_val_nums = train_val_nums + len(new_graph)
 
     dataset = prepare_dataset_x(dataset, args)
 
@@ -350,50 +324,41 @@ def main(args):
     num_features = dataset[0].x.shape[1]
     num_classes = dataset[0].y.shape[0]
 
-    # train_dataset = dataset[:train_nums]
-    # random.shuffle(train_dataset)
-    # val_dataset = dataset[train_nums:train_val_nums]
-    # test_dataset = dataset[train_val_nums:]
+    train_dataset = dataset[:train_nums]
+    random.shuffle(train_dataset)
+    val_dataset = dataset[train_nums:train_val_nums]
+    test_dataset = dataset[train_val_nums:]
 
-    # logger.info(f"train_dataset size: {len(train_dataset)}")
-    # logger.info(f"val_dataset size: {len(val_dataset)}")
-    # logger.info(f"test_dataset size: {len(test_dataset)}")
+    logger.info(f"train_dataset size: {len(train_dataset)}")
+    logger.info(f"val_dataset size: {len(val_dataset)}")
+    logger.info(f"test_dataset size: {len(test_dataset)}")
 
-    # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    # val_loader = DataLoader(val_dataset, batch_size=batch_size)
-    # test_loader = DataLoader(test_dataset, batch_size=batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-    # filename = f"augmented_{args.features_path}"
-    # path = os.path.join(args.output_path, filename)
+    model = GIN(num_features=num_features, num_classes=num_classes, num_hidden=num_hidden).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=5e-4)
+    scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
+
+    for epoch in range(1, num_epochs + 1):
+        model, train_loss = train(model, train_loader, optimizer, device, num_classes)
+        train_acc, _ = test(model, train_loader, device, num_classes)
+        val_acc, val_loss = test(model, val_loader, device, num_classes)
+        test_acc, test_loss = test(model, test_loader, device, num_classes)
+        scheduler.step()
+
+        logger.info(
+            "Epoch: {:03d}, Train Loss: {:.6f}, Val Loss: {:.6f}, Test Loss: {:.6f}, Train Acc: {:.6f}, Val Acc: {:.6f}, Test Acc: {:.6f}".format(
+                epoch, train_loss, val_loss, test_loss, train_acc, val_acc, test_acc
+            )
+        )
+
     with open(f"{args.features_path}_augmented", "wb") as fp:
         pickle.dump(dataset, fp)
     print(f"Features are successfully extracted and stored in path")
     print("******", len(dataset))
-
-    # if model == "GIN":
-    #     model = GIN(
-    #         num_features=num_features, num_classes=num_classes, num_hidden=num_hidden
-    #     ).to(device)
-    # else:
-    #     logger.info(f"No model.")
-
-    # optimizer = torch.optim.Adam(
-    #     model.parameters(), lr=learning_rate, weight_decay=5e-4
-    # )
-    # scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
-
-    # for epoch in range(1, num_epochs):
-    #     model, train_loss = train(model, train_loader)
-    #     train_acc = 0
-    #     val_acc, val_loss = test(model, val_loader)
-    #     test_acc, test_loss = test(model, test_loader)
-    #     scheduler.step()
-
-    #     logger.info(
-    #         "Epoch: {:03d}, Train Loss: {:.6f}, Val Loss: {:.6f}, Test Loss: {:.6f},  Val Acc: {: .6f}, Test Acc: {: .6f}".format(
-    #             epoch, train_loss, val_loss, test_loss, val_acc, test_acc
-    #         )
-    #     )
 
 
 if __name__ == "__main__":
