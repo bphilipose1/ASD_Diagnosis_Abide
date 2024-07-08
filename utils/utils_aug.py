@@ -200,7 +200,6 @@ def align_x_graphs(
 
 
 def two_graphons_mixup(two_graphons, la=0.5, num_sample=20):
-
     label = la * two_graphons[0][0] + (1 - la) * two_graphons[1][0]
     new_graphon = la * two_graphons[0][1] + (1 - la) * two_graphons[1][1]
 
@@ -209,7 +208,6 @@ def two_graphons_mixup(two_graphons, la=0.5, num_sample=20):
 
     sample_graphs = []
     for i in range(num_sample):
-
         sample_graph = (np.random.rand(*new_graphon.shape) <= new_graphon).astype(
             np.int32
         )
@@ -219,8 +217,16 @@ def two_graphons_mixup(two_graphons, la=0.5, num_sample=20):
         sample_graph = sample_graph[sample_graph.sum(axis=1) != 0]
         sample_graph = sample_graph[:, sample_graph.sum(axis=0) != 0]
 
+        if sample_graph.shape[0] == 0 or sample_graph.shape[1] == 0:
+            print("Skipping degenerate graph")
+            continue  # Skip if the sample graph is degenerate
+
         A = torch.from_numpy(sample_graph)
         edge_index, _ = dense_to_sparse(A)
+
+        if edge_index.numel() == 0:
+            print("edge_index is empty")
+            continue  # Skip this iteration if edge_index is empty
 
         num_nodes = int(torch.max(edge_index)) + 1
 
@@ -230,8 +236,8 @@ def two_graphons_mixup(two_graphons, la=0.5, num_sample=20):
         # pyg_graph.num_nodes = num_nodes ## we do not need num_nodes
         sample_graphs.append(pyg_graph)
 
-        # print(edge_index)
     return sample_graphs
+
 
 
 def two_x_graphons_mixup(two_x_graphons, la=0.5, num_sample=20):
