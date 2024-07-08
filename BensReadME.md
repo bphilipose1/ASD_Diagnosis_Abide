@@ -14,3 +14,4 @@
    Activate the newly created virtual environment. (conda activate compat_env)
 4. **Verify the Installation**
    Verify that the environment is set up correctly by checking the Python version. (python --version) should be Python 3.7.12
+5. Follow commands in run.txt in order
