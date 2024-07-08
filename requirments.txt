@@ -1,7 +1,7 @@
 nilearn==0.8.0
 numpy
 pandas
-sklearn
+scikit-learn
 networkx
 matplotlib
 tqdm

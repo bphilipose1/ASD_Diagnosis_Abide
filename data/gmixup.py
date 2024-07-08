@@ -24,8 +24,15 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
 # ------------------------------
+import sys
+import os
+
+# Add the parent directory of 'data' to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from utils.utils_aug import stat_graph, split_class_graphs, align_graphs
 from utils.utils_aug import two_graphons_mixup, universal_svd
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from graphon_estimator import universal_svd
 
 # ------------------------------
@@ -306,7 +313,7 @@ def main(args):
             new_graph += two_graphons_mixup(two_graphons, la=lam, num_sample=num_sample)
             logger.info(f"label: {new_graph[-1].y}")
             print(f"label: {new_graph[-1].y}")
-
+        print(f"Length of new_graph: {len(new_graph)}")
         (
             avg_num_nodes,
             avg_num_edges,

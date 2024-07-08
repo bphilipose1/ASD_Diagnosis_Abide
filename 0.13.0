@@ -1,0 +1,22 @@
+Looking in indexes: https://pypi.org/simple, https://download.pytorch.org/whl/cu118
+Requirement already satisfied: torch in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (2.3.1)
+Collecting torchvision
+  Downloading https://download.pytorch.org/whl/cu118/torchvision-0.18.1%2Bcu118-cp38-cp38-win_amd64.whl (4.9 MB)
+     ---------------------------------------- 4.9/4.9 MB 45.1 MB/s eta 0:00:00
+Collecting torchaudio
+  Downloading https://download.pytorch.org/whl/cu118/torchaudio-2.3.1%2Bcu118-cp38-cp38-win_amd64.whl (4.0 MB)
+     ---------------------------------------- 4.0/4.0 MB 36.2 MB/s eta 0:00:00
+Requirement already satisfied: filelock in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torch) (3.15.4)
+Requirement already satisfied: typing-extensions>=4.8.0 in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torch) (4.12.2)
+Requirement already satisfied: sympy in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torch) (1.12.1)
+Collecting networkx (from torch)
+  Downloading https://download.pytorch.org/whl/networkx-3.2.1-py3-none-any.whl (1.6 MB)
+     ---------------------------------------- 1.6/1.6 MB 52.8 MB/s eta 0:00:00
+Collecting jinja2 (from torch)
+  Using cached jinja2-3.1.4-py3-none-any.whl.metadata (2.6 kB)
+Requirement already satisfied: fsspec in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torch) (2024.6.1)
+Requirement already satisfied: mkl<=2021.4.0,>=2021.1.1 in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torch) (2021.4.0)
+Requirement already satisfied: numpy in c:\users\phili.bens-gaming-pc\anaconda3\envs\ads_env\lib\site-packages (from torchvision) (1.24.4)
+Collecting torch
+  Downloading https://download.pytorch.org/whl/cu118/torch-2.3.1%2Bcu118-cp38-cp38-win_amd64.whl (2673.1 MB)
+     ----------------------------             1.9/2.7 GB 73.1 MB/s eta 0:00:11
