@@ -5,7 +5,6 @@ python .\data\data_preparation.py --adj_path ".\NYU\feat_matrix_NYU_tangent.npz"
 
 ==============================
 python .\data\gmixup.py --features_path ".\NYU\features_tangent_binary_threshold_0.14_Standard_3" --gmixup "True" --scaler_type "Standard" --aug_num 20
-
 ==============================
 
 python .\scripts\train_GraphSAGE.py `

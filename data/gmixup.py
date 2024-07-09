@@ -1,4 +1,3 @@
-
 import argparse
 import pickle
 from time import time
@@ -6,7 +5,6 @@ import logging
 import os
 import os.path as osp
 import numpy as np
-import time
 import pandas as pd
 import random
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
@@ -19,8 +17,10 @@ from networkx.algorithms.cluster import clustering
 # ------------------------------
 import torch
 import torch.nn.functional as F
-from torch_geometric.data import DataLoader
-from torch_geometric.utils import degree
+from torch_geometric.loader import DataLoader
+from torch_geometric.utils import degree, to_dense_adj, dense_to_sparse
+from torch_geometric.data import Data
+from torch_geometric.nn import global_mean_pool
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
@@ -31,8 +31,7 @@ import os
 # Add the parent directory of 'data' to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.utils_aug import stat_graph, split_class_graphs, align_graphs
-from utils.utils_aug import two_graphons_mixup, universal_svd
+from utils.utils_aug import stat_graph, split_class_graphs, align_graphs, two_graphons_mixup, universal_svd
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from graphon_estimator import universal_svd
 
@@ -50,7 +49,7 @@ def parse_arguments():
     parser.add_argument(
         "--features_path",
         type=str,
-        default=r"C:\Users\Afrooz Sheikholeslam\Education\8th semester\Project1\competition\out\train_adjacency_tangent.npz",
+        default="path_to_your_features_file.npz",
         help="Path to the features file",
         required=True,
     )
@@ -78,50 +77,49 @@ def parse_arguments():
 
 
 def prepare_dataset_x(dataset, args):
-    if dataset[0].x is None:
-        for data in dataset[: args.aug_num]:
-            G = nx.Graph()
-            G.add_edges_from(data.edge_index.t().numpy())
-            if nx.is_connected(G):
-                features = pd.DataFrame(
-                    {
-                        "degree": dict(G.degree(weight="weight")).values(),
-                        "betweenness": dict(
-                            betweenness_centrality(G, weight="weight")
-                        ).values(),
-                        "eccentricity": dict(nx.eccentricity(G)).values(),
-                    }
-                )
-            else:
-                eccentricity = {}
-                components = sorted(nx.connected_components(G), key=len, reverse=True)
-                for comp in components:
-                    G_sub = G.subgraph(comp)
-                    for node in comp:
-                        eccentricity[node] = nx.eccentricity(G_sub, v=node)
-                features = pd.DataFrame(
-                    {
-                        "degree": dict(G.degree(weight="weight")).values(),
-                        "betweenness": dict(
-                            betweenness_centrality(G, weight="weight")
-                        ).values(),
-                        "eccentricity": eccentricity.values(),
-                    }
-                )
+    for data in dataset[:args.aug_num]:
+        G = nx.Graph()
+        G.add_edges_from(data.edge_index.t().numpy())
+        if nx.is_connected(G):
+            features = pd.DataFrame(
+                {
+                    "degree": dict(G.degree(weight="weight")).values(),
+                    "betweenness": dict(
+                        betweenness_centrality(G, weight="weight")
+                    ).values(),
+                    "eccentricity": dict(nx.eccentricity(G)).values(),
+                }
+            )
+        else:
+            eccentricity = {}
+            components = sorted(nx.connected_components(G), key=len, reverse=True)
+            for comp in components:
+                G_sub = G.subgraph(comp)
+                for node in comp:
+                    eccentricity[node] = nx.eccentricity(G_sub, v=node)
+            features = pd.DataFrame(
+                {
+                    "degree": dict(G.degree(weight="weight")).values(),
+                    "betweenness": dict(
+                        betweenness_centrality(G, weight="weight")
+                    ).values(),
+                    "eccentricity": eccentricity.values(),
+                }
+            )
 
-            # scale the data (optional)
-            if args.scaler_type in ["MinMax", "Standard"]:
-                if args.scaler_type == "MinMax":
-                    scaler = MinMaxScaler()
-                    features = scaler.fit_transform(features)
-                else:
-                    scaler = StandardScaler()
-                    features = scaler.fit_transform(features)
-
-                X = torch.from_numpy(features)
+        # scale the data (optional)
+        if args.scaler_type in ["MinMax", "Standard"]:
+            if args.scaler_type == "MinMax":
+                scaler = MinMaxScaler()
+                features = scaler.fit_transform(features)
             else:
-                X = torch.tensor(features.values)
-            data.x = X
+                scaler = StandardScaler()
+                features = scaler.fit_transform(features)
+
+            X = torch.from_numpy(features)
+        else:
+            X = torch.tensor(features.values)
+        data.x = X
     return dataset
 
 
@@ -143,7 +141,7 @@ def mixup_cross_entropy_loss(input, target, size_average=True):
     suppose q is the target and p is the input
     loss(p, q) = -\sum_i q_i \log p_i
     """
-    assert input.size() == target.size()
+    assert input.size() == target.size(), f"Input size {input.size()} does not match target size {target.size()}!"
     assert isinstance(input, Variable) and isinstance(target, Variable)
     loss = -torch.sum(input * target)
     return loss / input.size()[0] if size_average else loss
@@ -155,9 +153,12 @@ def train(model, train_loader, optimizer, device, num_classes):
     graph_all = 0
     for data in train_loader:
         data = data.to(device)
+        data.x = data.x.to(torch.float32)  # Ensure x is float32
         optimizer.zero_grad()
         output = model(data.x, data.edge_index, data.batch)
         y = data.y.view(-1, num_classes)
+        print("Output size:", output.size())
+        print("Target size:", y.size())
         loss = mixup_cross_entropy_loss(output, y)
         loss.backward()
         loss_all += loss.item() * data.num_graphs
@@ -165,7 +166,6 @@ def train(model, train_loader, optimizer, device, num_classes):
         optimizer.step()
     loss = loss_all / graph_all
     return model, loss
-
 
 def test(model, loader, device, num_classes):
     model.eval()
@@ -175,6 +175,7 @@ def test(model, loader, device, num_classes):
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
+            data.x = data.x.to(torch.float32)  # Ensure x is float32
             output = model(data.x, data.edge_index, data.batch)
             pred = output.max(dim=1)[1]
             y = data.y.view(-1, num_classes)
@@ -187,8 +188,46 @@ def test(model, loader, device, num_classes):
     return acc, loss
 
 
-def main(args):
 
+def two_graphons_mixup(two_graphons, la=0.5, num_sample=20):
+    label = la * two_graphons[0][0] + (1 - la) * two_graphons[1][0]
+    new_graphon = la * two_graphons[0][1] + (1 - la) * two_graphons[1][1]
+
+    sample_graph_label = torch.from_numpy(label).type(torch.float32)
+    # print(new_graphon)
+
+    sample_graphs = []
+    for i in range(num_sample):
+        sample_graph = (np.random.rand(*new_graphon.shape) <= new_graphon).astype(
+            np.int32
+        )
+        sample_graph = np.triu(sample_graph)
+        sample_graph = sample_graph + sample_graph.T - np.diag(np.diag(sample_graph))
+
+        sample_graph = sample_graph[sample_graph.sum(axis=1) != 0]
+        sample_graph = sample_graph[:, sample_graph.sum(axis=0) != 0]
+
+        if sample_graph.shape[0] == 0 or sample_graph.shape[1] == 0:
+            print("Skipping degenerate graph")
+            continue  # Skip if the sample graph is degenerate
+
+        A = torch.from_numpy(sample_graph)
+        edge_index, _ = dense_to_sparse(A)
+
+        if edge_index.numel() == 0:
+            print("edge_index is empty")
+            continue  # Skip this iteration if edge_index is empty
+
+        pyg_graph = Data()
+        pyg_graph.y = sample_graph_label
+        pyg_graph.edge_index = edge_index
+        # pyg_graph.num_nodes = num_nodes ## we do not need num_nodes
+        sample_graphs.append(pyg_graph)
+
+    return sample_graphs
+
+
+def main(args):
     seed = args.seed
     lam_range = eval(args.lam_range)
     log_screen = eval(args.log_screen)
@@ -207,6 +246,7 @@ def main(args):
     with open(args.features_path, "rb") as fp:
         data_list = pickle.load(fp)
 
+    # Convert int to tensor in y
     for graph in data_list:
         graph.y = torch.tensor(graph.y)
         graph.y = graph.y.view(-1)
@@ -243,11 +283,10 @@ def main(args):
 
     resolution = int(median_num_nodes)
 
-    if gmixup == True:
+    if gmixup:
         class_graphs = split_class_graphs(dataset[:train_nums])
         graphons = []
         for label, graphs in class_graphs:
-
             logger.info(f"label: {label}, num_graphs:{len(graphs)}")
             print(f"label: {label}, num_graphs:{len(graphs)}")
             align_graphs_list, normalized_node_degrees, max_num, min_num = align_graphs(
@@ -319,10 +358,15 @@ def main(args):
     dataset = prepare_dataset_x(dataset, args)
 
     for i in range(11):
-        print(f"num_features: {dataset[i].x.shape}")
+        if dataset[i].x is not None:
+            print(f"num_features: {dataset[i].x.shape}")
+        else:
+            print(f"Dataset entry {i} has no features.")
 
-    num_features = dataset[0].x.shape[1]
-    num_classes = dataset[0].y.shape[0]
+    dataset = [data for data in dataset if data.x is not None]
+
+    num_features = dataset[0].x.shape[1] if dataset[0].x is not None else 0
+    num_classes = dataset[0].y.shape[0] if dataset[0].y is not None else 0
 
     train_dataset = dataset[:train_nums]
     random.shuffle(train_dataset)
@@ -337,7 +381,21 @@ def main(args):
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-    model = GIN(num_features=num_features, num_classes=num_classes, num_hidden=num_hidden).to(device)
+    # Define your model here
+    # Example:
+    class GNNModel(torch.nn.Module):
+        def __init__(self, num_features, num_classes, num_hidden):
+            super(GNNModel, self).__init__()
+            self.conv1 = torch.nn.Linear(num_features, num_hidden)
+            self.conv2 = torch.nn.Linear(num_hidden, num_classes)
+
+        def forward(self, x, edge_index, batch):
+            x = F.relu(self.conv1(x))
+            x = self.conv2(x)
+            x = global_mean_pool(x, batch)  # Ensure proper pooling
+            return x
+
+    model = GNNModel(num_features, num_classes, num_hidden).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=5e-4)
     scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
@@ -364,3 +422,5 @@ def main(args):
 if __name__ == "__main__":
     args = parse_arguments()
     main(args)
+    device = torch.cuda.get_device_name(device=None) 
+    print("Used Device is : {}".format(device))

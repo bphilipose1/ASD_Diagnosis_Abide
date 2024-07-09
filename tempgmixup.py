@@ -210,11 +210,11 @@ def main(args):
     lam_range = eval(args.lam_range)
     log_screen = eval(args.log_screen)
     gmixup = eval(args.gmixup)
-    # num_epochs = args.epoch
+    num_epochs = args.epoch
 
-    # num_hidden = args.num_hidden
-    # batch_size = args.batch_size
-    # learning_rate = args.lr
+    num_hidden = args.num_hidden
+    batch_size = args.batch_size
+    learning_rate = args.lr
     ge = args.ge
     aug_ratio = args.aug_ratio
     aug_num = args.aug_num
